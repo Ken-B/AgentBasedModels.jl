@@ -2,92 +2,81 @@ module AgentBasedModels
 
 using Interact, Reactive
 
+DEF_STEPS = 100 # default steps to run a model
 FPS_RATE = 60 # TODO fix fps_slider input
 
-export Simulation, create_signal, run_button, reset_button
+export AgentBasedModel, simulate
 
-# The initialize function outputs an instance of type T. Simulation! takes an instance of
+# Simulation Type
+# ---------------
+
+# The initialize function outputs an instance of type T. simulate! takes an instance of
 # type T and performs one simulation step.
-# A dictionary holds dynamic output and/or display values.
-type Simulation{T}
+type AgentBasedModel{T}
     state::T
     initialize::Function
     simulate!::Function
-    kwargs::Dict{Symbol, Any}
-    history::Dict{Symbol, Any}
     steps::Int
 end
-
-
-
 # TOOD is it possible to create a Simulation instance without having to run initialize?
-function Simulation(initialize::Function, simulate::Function)
+function AgentBasedModel(initialize::Function, simulate::Function)
     state = initialize()
     T = typeof(state)
-    Simulation{T}(state, initialize, simulate, Dict{Symbol, Any}(), Dict{Symbol, Any}(), 0)
+    AgentBasedModel{T}(state, initialize, simulate, 0)
 end
-Base.eltype{T}(s::Simulation{T}) = T
-Base.length(s::Simulation) = s.steps
-Base.getindex(s::Simulation, key::Symbol) = s.history[key]
+Base.eltype{T}(abm::AgentBasedModel{T}) = T
+Base.length(abm::AgentBasedModel) = abm.steps
+Base.show(io::IO, abm::AgentBasedModel) = print(io, "Simuation with $(length(abm)) steps.")
+plot(abm::AgentBasedModel; kwargs...) = plot(abm.state; kwargs...)
 
-Base.show(io::IO, s::Simulation) = print(io, "Simuation with $(length(s)) steps.")
-
-plot(s::Simulation; kwargs...) = plot(s.state; kwargs...)
-
-# TODO find better way to collect keyword arguments (kwargs)
-init_output!(s::Simulation; kwargs...) = nothing
-
-function init!(s::Simulation; kw=Dict{Symbol,Any}())
-    empty!(s.history)
-    empty!(s.kwargs)
-    haskey(kw, :seed) || setindex!(kw, 123, :seed)
-    srand(kw[:seed])
-    s.kwargs = kw
-    s.state::eltype(s) = s.initialize(; kw...)
-    init_output!(s; kw...)
-    s.steps = 1
+function init!(abm::AgentBasedModel; seed = 123, kwargs...)
+    srand(seed)
+    abm.state::eltype(abm) = abm.initialize(; kwargs...)
+    abm.steps = 1
     return nothing
 end
-#init(s::Simulation; kwargs...) = (init!(s; kwargs...); s)
 
-output!{T}(s::Simulation{T}; kwargs...) = nothing
-function simulate!(s::Simulation)
-    s.simulate!(s.state; s.kwargs...)::Nothing
-    output!(s; s.kwargs...)
-    s.steps += 1
+function step!(abm::AgentBasedModel; kwargs...)
+    abm.simulate!(abm.state; kwargs...)::Nothing
+    abm.steps += 1
     return nothing
 end
-#simulate(s::Simulation, kwargs...) = (simulate!(s, kwargs...); s)
 
-# Stepping Widgets
-# ----------------
 
-# TODO put these in a type (or smth) instead of global namespace
-run_button = togglebutton("▶ Run")
-run_sig = keepwhen(signal(run_button), 0, fps(FPS_RATE))
-reset_button = button("initialize", value = :reset)
-step_sig = merge(run_sig, signal(reset_button))
+# Result Type
+# -----------
 
-# max_steps_slider = slider(10:10:200, value = 150, label = "maximum simulation steps")
-# max_steps = signal(max_steps_slider)
+# The Result type holds the model, its parameters and output. It's basically a single run of
+# a simulation. The init_output functio is run after the initializing the model. It outputs
+# the initial output dictionary and takes the inital state T of the model as input.
+# The output! function is run after each simulate! and takes in a Result{T} object.
+# TODO:
+type Result{T}
+    abm::AgentBasedModel{T}
+    init_kwargs::ObjectIdDict
+    sim_kwargs::ObjectIdDict
+    output!::Function # saved for reproducability
+    init_output::Function # saved for reproducability
+    output::ObjectIdDict
+end
+Base.getindex(r::Result, key::Symbol) = r.output[key]
+Base.show(io::IO, r::Result) = print(io, "Results of a simuation with $(length(r.abm)) steps.")
+Base.length(r::Result) = length(r.abm)
 
-# Simulation signals
-# ------------------
-
-# TODO find solution for init_kwargs and sim_kwargs in global (module) scope
-sim_kwargs  = Dict{Symbol, Any}()
-
-function create_signal(s::Simulation)
-    sig = foldl((sim, val) -> begin
-        if val == :reset
-            init!(sim)
-            return(sim)
-        end
-        # s.steps < max_steps && simulate!(sim)
-        simulate!(sim)
-        output!(sim)::Nothing
-        sim
-    end, s, step_sig)
+# Function to run one single simulation
+function simulate{T}(abm::AgentBasedModel{T}; steps = DEF_STEPS,
+                                        init_kwargs = ObjectIdDict(),
+                                        sim_kwargs = ObjectIdDict(),
+                                        output! = (r::Result{T}) -> nothing,
+                                        init_output = (t::T) -> ObjectIdDict())
+    init!(abm; init_kwargs...)
+    output::ObjectIdDict = init_output(abm.state)
+    result = Result(abm, init_kwargs, sim_kwargs, output!, init_output, output)
+    for step = 1:steps
+        step!(abm; sim_kwargs...)
+        output!(result)
+    end
+    return result
 end
 
 end #module
