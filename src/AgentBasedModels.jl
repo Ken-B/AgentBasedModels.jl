@@ -51,13 +51,13 @@ end
 # the initial output dictionary and takes the inital state T of the model as input.
 # The output! function is run after each simulate! and takes in a Result{T} object.
 # TODO:
-type Result{T}
+type Result{T, U<:Any, V<:Any, W<:Any}
     abm::AgentBasedModel{T}
-    init_kwargs::ObjectIdDict
-    sim_kwargs::ObjectIdDict
+    init_kwargs::Dict{Symbol, U}
+    sim_kwargs::Dict{Symbol, V}
     output!::Function # saved for reproducability
     init_output::Function # saved for reproducability
-    output::ObjectIdDict
+    output::Dict{Symbol, W}
 end
 Base.getindex(r::Result, key::Symbol) = r.output[key]
 Base.show(io::IO, r::Result) = print(io, "Results of a simuation with $(length(r.abm)) steps.")
@@ -65,12 +65,12 @@ Base.length(r::Result) = length(r.abm)
 
 # Function to run one single simulation
 function simulate{T}(abm::AgentBasedModel{T}; steps = DEF_STEPS,
-                                        init_kwargs = ObjectIdDict(),
-                                        sim_kwargs = ObjectIdDict(),
+                                        init_kwargs = Dict{Symbol, Any}(),
+                                        sim_kwargs = Dict{Symbol, Any}(),
                                         output! = (r::Result{T}) -> nothing,
-                                        init_output = (t::T) -> ObjectIdDict())
+                                        init_output = (t::T) -> Dict{Symbol, Any}())
     init!(abm; init_kwargs...)
-    output::ObjectIdDict = init_output(abm.state)
+    output::Dict{Symbol, Any} = init_output(abm.state)
     result = Result(abm, init_kwargs, sim_kwargs, output!, init_output, output)
     for step = 1:steps
         step!(abm; sim_kwargs...)
